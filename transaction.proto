@@ -1,0 +1,68 @@
+package mry;
+
+message Transaction {
+	optional uint64 id = 1;
+	optional TransactionReturn return = 2;
+
+	repeated TransactionBlock blocks = 10;
+}
+
+message TransactionReturn {
+	optional TransactionError error = 1;
+	repeated TransactionValue data = 2;
+}
+
+message TransactionError {
+	required uint32 id = 1;
+	required string message = 2;
+}
+
+message TransactionBlock {
+	required uint32 id = 1;
+	repeated TransactionOperation operations = 2;
+	repeated TransactionVariable variables = 3;
+
+	optional TransactionBlock parent = 5;
+}
+
+message TransactionVariable {
+	required uint32 block = 1;
+	required uint32 id = 2;
+	optional TransactionValue value = 3;
+}
+
+message TransactionValue {
+	optional int64 int_value = 1;
+	optional bool bool_value = 2;
+	optional float float_value = 3;
+	optional double double_value = 4;
+	optional string string_value = 5;
+	optional bytes bytes_value = 6;
+}
+
+message TransactionObject {
+	optional TransactionValue value = 1;
+	optional TransactionVariable variable = 2;
+};
+
+message TransactionOperation {
+	optional group Set = 1 {
+		required TransactionVariable destination = 1;
+		required TransactionObject key = 2;
+		required TransactionObject value = 3;
+	};
+	optional group Get = 2 {
+		required TransactionVariable source = 1;
+		required TransactionObject key = 2;
+		required TransactionVariable destination = 3;
+	};
+	optional group Get_table = 3 {
+		required TransactionObject table_name = 1;
+		required TransactionVariable destination = 2;
+		optional TransactionVariable source = 3;
+	};
+	optional group Return = 4 {
+		repeated TransactionObject data = 1;
+	};
+}
+
