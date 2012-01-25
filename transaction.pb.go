@@ -5,132 +5,158 @@ package mry
 
 import proto "goprotobuf.googlecode.com/hg/proto"
 import "math"
-import "os"
 
-// Reference proto, math & os imports to suppress error if they are not otherwise used.
+// Reference proto and math imports to suppress error if they are not otherwise used.
 var _ = proto.GetString
 var _ = math.Inf
-var _ os.Error
 
 type Transaction struct {
-	Id			*uint64			`protobuf:"varint,1,opt,name=id"`
-	Return			*TransactionReturn	`protobuf:"bytes,2,opt,name=return"`
-	Blocks			[]*TransactionBlock	`protobuf:"bytes,10,rep,name=blocks"`
-	XXX_unrecognized	[]byte
+	Id               *uint64             `protobuf:"varint,1,opt,name=id" json:"id,omitempty"`
+	Return           *TransactionReturn  `protobuf:"bytes,2,opt,name=return" json:"return,omitempty"`
+	Blocks           []*TransactionBlock `protobuf:"bytes,10,rep,name=blocks" json:"blocks,omitempty"`
+	XXX_unrecognized []byte              `json:",omitempty"`
 }
 
-func (this *Transaction) Reset()		{ *this = Transaction{} }
-func (this *Transaction) String() string	{ return proto.CompactTextString(this) }
+func (this *Transaction) Reset()         { *this = Transaction{} }
+func (this *Transaction) String() string { return proto.CompactTextString(this) }
 
 type TransactionReturn struct {
-	Error			*TransactionError	`protobuf:"bytes,1,opt,name=error"`
-	Data			[]*TransactionValue	`protobuf:"bytes,2,rep,name=data"`
-	XXX_unrecognized	[]byte
+	Error            *TransactionError   `protobuf:"bytes,1,opt,name=error" json:"error,omitempty"`
+	Data             []*TransactionValue `protobuf:"bytes,2,rep,name=data" json:"data,omitempty"`
+	XXX_unrecognized []byte              `json:",omitempty"`
 }
 
-func (this *TransactionReturn) Reset()		{ *this = TransactionReturn{} }
-func (this *TransactionReturn) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionReturn) Reset()         { *this = TransactionReturn{} }
+func (this *TransactionReturn) String() string { return proto.CompactTextString(this) }
 
 type TransactionError struct {
-	Id			*uint32	`protobuf:"varint,1,req,name=id"`
-	Message			*string	`protobuf:"bytes,2,req,name=message"`
-	XXX_unrecognized	[]byte
+	Id               *uint32 `protobuf:"varint,1,req,name=id" json:"id,omitempty"`
+	Message          *string `protobuf:"bytes,2,req,name=message" json:"message,omitempty"`
+	XXX_unrecognized []byte  `json:",omitempty"`
 }
 
-func (this *TransactionError) Reset()		{ *this = TransactionError{} }
-func (this *TransactionError) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionError) Reset()         { *this = TransactionError{} }
+func (this *TransactionError) String() string { return proto.CompactTextString(this) }
 
 type TransactionBlock struct {
-	Id			*uint32			`protobuf:"varint,1,req,name=id"`
-	Operations		[]*TransactionOperation	`protobuf:"bytes,2,rep,name=operations"`
-	Variables		[]*TransactionVariable	`protobuf:"bytes,3,rep,name=variables"`
-	Parent			*TransactionBlock	`protobuf:"bytes,5,opt,name=parent"`
-	XXX_unrecognized	[]byte
+	Id               *uint32                 `protobuf:"varint,1,req,name=id" json:"id,omitempty"`
+	Operations       []*TransactionOperation `protobuf:"bytes,2,rep,name=operations" json:"operations,omitempty"`
+	Variables        []*TransactionVariable  `protobuf:"bytes,3,rep,name=variables" json:"variables,omitempty"`
+	Parent           *TransactionBlock       `protobuf:"bytes,5,opt,name=parent" json:"parent,omitempty"`
+	XXX_unrecognized []byte                  `json:",omitempty"`
 }
 
-func (this *TransactionBlock) Reset()		{ *this = TransactionBlock{} }
-func (this *TransactionBlock) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionBlock) Reset()         { *this = TransactionBlock{} }
+func (this *TransactionBlock) String() string { return proto.CompactTextString(this) }
 
 type TransactionVariable struct {
-	Block			*uint32			`protobuf:"varint,1,req,name=block"`
-	Id			*uint32			`protobuf:"varint,2,req,name=id"`
-	Value			*TransactionValue	`protobuf:"bytes,3,opt,name=value"`
-	XXX_unrecognized	[]byte
+	Block            *uint32           `protobuf:"varint,1,req,name=block" json:"block,omitempty"`
+	Id               *uint32           `protobuf:"varint,2,req,name=id" json:"id,omitempty"`
+	Value            *TransactionValue `protobuf:"bytes,3,opt,name=value" json:"value,omitempty"`
+	XXX_unrecognized []byte            `json:",omitempty"`
 }
 
-func (this *TransactionVariable) Reset()		{ *this = TransactionVariable{} }
-func (this *TransactionVariable) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionVariable) Reset()         { *this = TransactionVariable{} }
+func (this *TransactionVariable) String() string { return proto.CompactTextString(this) }
 
 type TransactionValue struct {
-	IntValue		*int64		`protobuf:"varint,1,opt,name=int_value"`
-	BoolValue		*bool		`protobuf:"varint,2,opt,name=bool_value"`
-	FloatValue		*float32	`protobuf:"fixed32,3,opt,name=float_value"`
-	DoubleValue		*float64	`protobuf:"fixed64,4,opt,name=double_value"`
-	StringValue		*string		`protobuf:"bytes,5,opt,name=string_value"`
-	BytesValue		[]byte		`protobuf:"bytes,6,opt,name=bytes_value"`
-	XXX_unrecognized	[]byte
+	IntValue         *int64                 `protobuf:"varint,1,opt,name=int_value" json:"int_value,omitempty"`
+	BoolValue        *bool                  `protobuf:"varint,2,opt,name=bool_value" json:"bool_value,omitempty"`
+	DoubleValue      *float64               `protobuf:"fixed64,3,opt,name=double_value" json:"double_value,omitempty"`
+	StringValue      *string                `protobuf:"bytes,4,opt,name=string_value" json:"string_value,omitempty"`
+	BytesValue       []byte                 `protobuf:"bytes,5,opt,name=bytes_value" json:"bytes_value,omitempty"`
+	Array            *TransactionCollection `protobuf:"bytes,6,opt,name=array" json:"array,omitempty"`
+	Map              *TransactionCollection `protobuf:"bytes,7,opt,name=map" json:"map,omitempty"`
+	XXX_unrecognized []byte                 `json:",omitempty"`
 }
 
-func (this *TransactionValue) Reset()		{ *this = TransactionValue{} }
-func (this *TransactionValue) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionValue) Reset()         { *this = TransactionValue{} }
+func (this *TransactionValue) String() string { return proto.CompactTextString(this) }
+
+type TransactionCollection struct {
+	Values           []*TransactionCollectionValue `protobuf:"bytes,1,rep,name=values" json:"values,omitempty"`
+	XXX_unrecognized []byte                        `json:",omitempty"`
+}
+
+func (this *TransactionCollection) Reset()         { *this = TransactionCollection{} }
+func (this *TransactionCollection) String() string { return proto.CompactTextString(this) }
+
+type TransactionCollectionValue struct {
+	Value            *TransactionValue `protobuf:"bytes,1,req,name=value" json:"value,omitempty"`
+	Key              *string           `protobuf:"bytes,2,opt,name=key" json:"key,omitempty"`
+	XXX_unrecognized []byte            `json:",omitempty"`
+}
+
+func (this *TransactionCollectionValue) Reset()         { *this = TransactionCollectionValue{} }
+func (this *TransactionCollectionValue) String() string { return proto.CompactTextString(this) }
 
 type TransactionObject struct {
-	Value			*TransactionValue	`protobuf:"bytes,1,opt,name=value"`
-	Variable		*TransactionVariable	`protobuf:"bytes,2,opt,name=variable"`
-	XXX_unrecognized	[]byte
+	Value            *TransactionValue    `protobuf:"bytes,1,opt,name=value" json:"value,omitempty"`
+	Variable         *TransactionVariable `protobuf:"bytes,2,opt,name=variable" json:"variable,omitempty"`
+	XXX_unrecognized []byte               `json:",omitempty"`
 }
 
-func (this *TransactionObject) Reset()		{ *this = TransactionObject{} }
-func (this *TransactionObject) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionObject) Reset()         { *this = TransactionObject{} }
+func (this *TransactionObject) String() string { return proto.CompactTextString(this) }
 
 type TransactionOperation struct {
-	Set			*TransactionOperation_Set	`protobuf:"group,1,opt"`
-	Get			*TransactionOperation_Get	`protobuf:"group,2,opt"`
-	GetTable		*TransactionOperation_GetTable	`protobuf:"group,3,opt,name=Get_table"`
-	Return			*TransactionOperation_Return	`protobuf:"group,4,opt"`
-	XXX_unrecognized	[]byte
+	Set              *TransactionOperation_Set      `protobuf:"group,1,opt" json:"set,omitempty"`
+	Get              *TransactionOperation_Get      `protobuf:"group,2,opt" json:"get,omitempty"`
+	GetTable         *TransactionOperation_GetTable `protobuf:"group,3,opt,name=Get_table" json:"get_table,omitempty"`
+	Return           *TransactionOperation_Return   `protobuf:"group,4,opt" json:"return,omitempty"`
+	Getall           *TransactionOperation_GetAll   `protobuf:"group,5,opt,name=GetAll" json:"getall,omitempty"`
+	XXX_unrecognized []byte                         `json:",omitempty"`
 }
 
-func (this *TransactionOperation) Reset()		{ *this = TransactionOperation{} }
-func (this *TransactionOperation) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionOperation) Reset()         { *this = TransactionOperation{} }
+func (this *TransactionOperation) String() string { return proto.CompactTextString(this) }
 
 type TransactionOperation_Set struct {
-	Destination		*TransactionVariable	`protobuf:"bytes,1,req,name=destination"`
-	Key			*TransactionObject	`protobuf:"bytes,2,req,name=key"`
-	Value			*TransactionObject	`protobuf:"bytes,3,req,name=value"`
-	XXX_unrecognized	[]byte
+	Destination      *TransactionVariable `protobuf:"bytes,1,req,name=destination" json:"destination,omitempty"`
+	Key              *TransactionObject   `protobuf:"bytes,2,req,name=key" json:"key,omitempty"`
+	Value            *TransactionObject   `protobuf:"bytes,3,req,name=value" json:"value,omitempty"`
+	XXX_unrecognized []byte               `json:",omitempty"`
 }
 
-func (this *TransactionOperation_Set) Reset()		{ *this = TransactionOperation_Set{} }
-func (this *TransactionOperation_Set) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionOperation_Set) Reset()         { *this = TransactionOperation_Set{} }
+func (this *TransactionOperation_Set) String() string { return proto.CompactTextString(this) }
 
 type TransactionOperation_Get struct {
-	Source			*TransactionVariable	`protobuf:"bytes,1,req,name=source"`
-	Key			*TransactionObject	`protobuf:"bytes,2,req,name=key"`
-	Destination		*TransactionVariable	`protobuf:"bytes,3,req,name=destination"`
-	XXX_unrecognized	[]byte
+	Source           *TransactionVariable `protobuf:"bytes,1,req,name=source" json:"source,omitempty"`
+	Key              *TransactionObject   `protobuf:"bytes,2,req,name=key" json:"key,omitempty"`
+	Destination      *TransactionVariable `protobuf:"bytes,3,req,name=destination" json:"destination,omitempty"`
+	XXX_unrecognized []byte               `json:",omitempty"`
 }
 
-func (this *TransactionOperation_Get) Reset()		{ *this = TransactionOperation_Get{} }
-func (this *TransactionOperation_Get) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionOperation_Get) Reset()         { *this = TransactionOperation_Get{} }
+func (this *TransactionOperation_Get) String() string { return proto.CompactTextString(this) }
 
 type TransactionOperation_GetTable struct {
-	TableName		*TransactionObject	`protobuf:"bytes,1,req,name=table_name"`
-	Destination		*TransactionVariable	`protobuf:"bytes,2,req,name=destination"`
-	Source			*TransactionVariable	`protobuf:"bytes,3,opt,name=source"`
-	XXX_unrecognized	[]byte
+	TableName        *TransactionObject   `protobuf:"bytes,1,req,name=table_name" json:"table_name,omitempty"`
+	Destination      *TransactionVariable `protobuf:"bytes,2,req,name=destination" json:"destination,omitempty"`
+	Source           *TransactionVariable `protobuf:"bytes,3,opt,name=source" json:"source,omitempty"`
+	XXX_unrecognized []byte               `json:",omitempty"`
 }
 
-func (this *TransactionOperation_GetTable) Reset()		{ *this = TransactionOperation_GetTable{} }
-func (this *TransactionOperation_GetTable) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionOperation_GetTable) Reset()         { *this = TransactionOperation_GetTable{} }
+func (this *TransactionOperation_GetTable) String() string { return proto.CompactTextString(this) }
 
 type TransactionOperation_Return struct {
-	Data			[]*TransactionObject	`protobuf:"bytes,1,rep,name=data"`
-	XXX_unrecognized	[]byte
+	Data             []*TransactionObject `protobuf:"bytes,1,rep,name=data" json:"data,omitempty"`
+	XXX_unrecognized []byte               `json:",omitempty"`
 }
 
-func (this *TransactionOperation_Return) Reset()		{ *this = TransactionOperation_Return{} }
-func (this *TransactionOperation_Return) String() string	{ return proto.CompactTextString(this) }
+func (this *TransactionOperation_Return) Reset()         { *this = TransactionOperation_Return{} }
+func (this *TransactionOperation_Return) String() string { return proto.CompactTextString(this) }
+
+type TransactionOperation_GetAll struct {
+	Source           *TransactionVariable `protobuf:"bytes,1,req,name=source" json:"source,omitempty"`
+	Destination      *TransactionVariable `protobuf:"bytes,2,req,name=destination" json:"destination,omitempty"`
+	XXX_unrecognized []byte               `json:",omitempty"`
+}
+
+func (this *TransactionOperation_GetAll) Reset()         { *this = TransactionOperation_GetAll{} }
+func (this *TransactionOperation_GetAll) String() string { return proto.CompactTextString(this) }
 
 func init() {
 }

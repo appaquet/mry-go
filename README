@@ -3,7 +3,7 @@ a database in a distributed fashion accepting requests
 from any language that supports protocol buffers. Mry handles
 sharding and scales by constraining the data model to
 scalable designs. Mry uses nrv (github.com/appaquet/nrv) 
-for RPC and cluster management. 
+for RPC, cluster management and journaling.
 
 Mry is still in active developement and is part time project. There
 is no plan to make it production safe yet.

@@ -1,17 +1,31 @@
 package mry
 
 import (
-	"os"
+	"errors"
+	"fmt"
 	pb "goprotobuf.googlecode.com/hg/proto"
+
+	"reflect"
 )
 
 // Interface of an object that can be handled as a transaction
 type Transactable interface {
-	GetTransaction()  *Transaction
+	GetTransaction() *Transaction
+}
+
+type Block interface {
 }
 
 // Transaction that encapsulates operations that will be executed on 
 // the storage
+
+//type Transaction struct {
+//	Id               *uint64             `protobuf:"varint,1,opt,name=id"`
+//	Return           *TransactionReturn  `protobuf:"bytes,2,opt,name=return"`
+//	Blocks           []*TransactionBlock `protobuf:"bytes,10,rep,name=blocks"`
+//	XXX_unrecognized []byte
+//}
+
 func (trx *Transaction) GetTransaction() *Transaction {
 	return trx
 }
@@ -85,14 +99,13 @@ func (b *TransactionBlock) Into(name string) *clientVar {
 	return b.From(name)
 }
 
-func (b *TransactionBlock) Return(data... interface{}) *clientVar {
+func (b *TransactionBlock) Return(data ...interface{}) *clientVar {
 	nv := b.newClientVariable()
 
 	objData := make([]*TransactionObject, len(data))
 	for i, iface := range data {
 		objData[i] = toObject(iface)
 	}
-
 
 	b.addOperation(&TransactionOperation{
 		Return: &TransactionOperation_Return{
@@ -105,8 +118,8 @@ func (b *TransactionBlock) Return(data... interface{}) *clientVar {
 // Wrapped transaction variable to support operations 
 // that will be stacked on the current block
 type clientVar struct {
-	block         *TransactionBlock
-	variable      *TransactionVariable
+	block    *TransactionBlock
+	variable *TransactionVariable
 }
 
 func (v *clientVar) getBlock() *TransactionBlock {
@@ -178,84 +191,46 @@ func (v *clientVar) Order(something interface{}) *clientVar {
 }
 
 func (v *clientVar) GetAll() *clientVar {
-	nv := v.getBlock().newClientVariable()
-	// TODO: implement
+	b := v.getBlock()
+	nv := b.newClientVariable()
+	b.addOperation(&TransactionOperation{
+		Getall: &TransactionOperation_GetAll{
+			Destination: nv.variable,
+			Source:      v.variable,
+		},
+	})
 	return nv
 }
 
+//type TransactionReturn struct {
+//	Error            *TransactionError   `protobuf:"bytes,1,opt,name=error"`
+//	Data             []*TransactionValue `protobuf:"bytes,2,rep,name=data"`
+//	XXX_unrecognized []byte
+//}
 
-
-func (val *TransactionValue) ToInterface() interface{} {
-	switch {
-	case val.BoolValue != nil:
-		return *val.BoolValue
-	case val.BytesValue != nil:
-		return val.BytesValue
-	case val.DoubleValue != nil:
-		return *val.DoubleValue
-	case val.FloatValue != nil:
-		return *val.FloatValue
-	case val.IntValue != nil:
-		return *val.IntValue
-	case val.StringValue != nil:
-		return *val.StringValue
+func (r *TransactionReturn) GetAll() []interface{} {
+	ret := make([]interface{}, len(r.Data))
+	for i, tVal := range r.Data {
+		ret[i] = tVal.ToInterface()
 	}
-
-	panic("Cannot convert value to interface")
-	return nil
+	return ret
 }
 
-func (val *TransactionValue) Unmarshall(buf []byte) os.Error {
-	return pb.Unmarshal(buf, val)
-}
+func (r *TransactionReturn) Into(destinations ...interface{}) error {
+	iVals := r.GetAll()
+	var err error
 
-func (val *TransactionValue) Marshall() ([]byte, os.Error) {
-	return pb.Marshal(val)
-}
+	for i := 0; i < len(destinations) && i < len(iVals); i++ {
+		rflDest := reflect.ValueOf(destinations[i])
+		rflVal := reflect.ValueOf(iVals[i])
 
-func (o *TransactionObject) getValue(context *transactionContext) *TransactionValue {
-	// TODO: make sure at least value or variable are set
-	if o.Value != nil {
-		return o.Value
-	}
-	v := context.getServerVariable(o.Variable)
-	return v.value.toTransactionValue()
-}
-
-func toObject(o interface{}) *TransactionObject {
-	switch o.(type) {
-
-	case *TransactionObject:
-		return o.(*TransactionObject)
-
-	case *TransactionVariable:
-		return &TransactionObject{
-			Variable: o.(*TransactionVariable),
-		}
-
-	case *clientVar:
-		return &TransactionObject{
-			Variable: o.(*clientVar).variable,
-		}
-
-	}
-
-	return &TransactionObject{
-		Value: toTransactionValue(o),
-	}
-}
-
-func toTransactionValue(o interface{}) *TransactionValue {
-	switch o.(type) {
-	case string:
-		return &TransactionValue{
-			StringValue: pb.String(o.(string)),
-		}
-	case nil:
-		return &TransactionValue{
+		elmDest := rflDest.Elem()
+		if elmDest.CanSet() && elmDest.Type().AssignableTo(rflVal.Type()) {
+			elmDest.Set(rflVal)
+		} else {
+			err = errors.New(fmt.Sprintf("Cannot set destination %i: Destination non-settable or value unassignable (val %s)", i, rflVal))
 		}
 	}
 
-	panic("Value not supported")
-	return nil
+	return err
 }

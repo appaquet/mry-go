@@ -1,24 +1,26 @@
 package mry
 
 import (
-	"os"
-	mysql "github.com/Philio/GoMySQL"
+	"time"
 )
-// FIXME: cross storage transaction?
-// TODO: MySQL pooling
 
+// TODO: in memory transaction shim 
 
 type Storage interface {
 	Init()
-	//CreateTable(table string, nbKey int)
+	CreateTable(table string, depth int) error
 	//CreateIndex(table, column string)
-	GetTransaction() (StorageTransaction, os.Error)
+	GetTransaction(trxTime time.Time) (StorageTransaction, error)
+	Nuke() error
 }
 
 type StorageTransaction interface {
-	Get(table string, keys []string) ([]byte, os.Error)
-	Set(table string, keys []string, data []byte) os.Error
-	Commit() os.Error
+	Set(table string, keys []string, data []byte) error
+	Get(table string, keys []string) (*Row, error)
+	GetQuery(query StorageQuery) (RowIterator, error)
+	GetTimeline(table string, nbKey int, from time.Time, count int) ([][2]*Row, error)
+	Rollback() error
+	Commit() error
 }
 
 func compoundKeyString(table string, keys ...string) string {
@@ -29,147 +31,37 @@ func compoundKeyString(table string, keys ...string) string {
 	return ret
 }
 
-// In-memory storage
-type MemoryStorage struct {
-	data map[string][]byte
+type StorageQuery struct {
+	Table       string
+	TablePrefix []string
+	Limit       int
 }
 
-func (ms *MemoryStorage) Init() {
-	ms.data = make(map[string][]byte)
+type Row struct {
+	IntTimestamp  int64
+	Timestamp     time.Time
+	Key1          string
+	Key2          string
+	Key3          string
+	Key4          string
+	Data          []byte
 }
 
-func (ms *MemoryStorage) GetTransaction() (StorageTransaction, os.Error) {
-	return &MemoryStorageTransaction{
-		storage:  ms,
-		tempData: make(map[string][]byte),
-	}, nil
+func (r *Row) ConvertTimestamp() {
+	r.Timestamp = time.Unix(0, r.IntTimestamp)
 }
 
-type MemoryStorageTransaction struct {
-	storage  *MemoryStorage
-	tempData map[string][]byte
+func (r *Row) Reset() {
+	r.IntTimestamp = 0
+	r.Timestamp = time.Unix(0, 0)
+	r.Key1 = ""
+	r.Key2 = ""
+	r.Key3 = ""
+	r.Key4 = ""
+	r.Data = nil
 }
 
-func (mst *MemoryStorageTransaction) Get(table string, keys []string) ([]byte, os.Error) {
-	// TODO: keep track of data version so we can ensure transaction atomicity
-
-	if val, found := mst.tempData[compoundKeyString(table, keys...)]; found {
-		return val, nil
-	}
-
-	if val, found := mst.storage.data[compoundKeyString(table, keys...)]; found {
-		return val, nil
-	}
-
-	return nil, nil
+type RowIterator interface {
+	Next() (*Row, error)
+	Close()
 }
-
-func (mst *MemoryStorageTransaction) Set(table string, keys []string, data []byte) os.Error {
-	mst.tempData[compoundKeyString(table, keys...)] = data
-	return nil
-}
-
-func (mst *MemoryStorageTransaction) Commit() os.Error {
-	// TODO: check current versions for atomicity
-	for key, data := range mst.tempData {
-		mst.storage.data[key] = data
-	}
-
-	return nil
-}
-
-
-// MySQL storage
-type MysqlStorage struct {
-	Host	  string
-	Username  string
-	Password  string
-	Database  string
-}
-
-func (ms *MysqlStorage) Init() {
-	// TODO: create pool
-}
-
-func (ms *MysqlStorage) getClient() (*mysql.Client, os.Error) {
-	// TODO: pooling!
-	return mysql.DialTCP(ms.Host, ms.Username, ms.Password, ms.Database)
-}
-
-func (ms *MysqlStorage) GetTransaction() (StorageTransaction, os.Error) {
-	client, err := ms.getClient()
-	if err != nil {
-		return nil, err
-	}
-	
-	// start transaction
-	client.Start()
-
-	return &MysqlStorageTransaction{
-		storage: ms,
-		client: client,
-	}, nil
-}
-
-type MysqlStorageTransaction struct {
-	storage  *MysqlStorage
-	client   *mysql.Client
-}
-
-func (t *MysqlStorageTransaction) Get(table string, keys []string) ([]byte, os.Error) {
-	stmt, err := t.client.Prepare("SELECT d FROM `" + t.client.Escape(table) + "` WHERE k = ?")
-	if err != nil {
-		return nil, err
-	}
-
-	err = stmt.BindParams(keys[0])
-	if err != nil {
-		return nil, err
-	}
-
-	err = stmt.Execute()	
-	if err != nil {
-		return nil, err
-	}
-
-	var data []byte 
-	stmt.BindResult(&data)
-
-	eof, err := stmt.Fetch()
-	if eof || err != nil {
-		return nil, err
-	}
-
-
-	err = stmt.FreeResult()
-	if err != nil {
-		return nil, err
-	}
-
-	return data, nil
-}
-
-func (t *MysqlStorageTransaction) Set(table string, keys []string, data []byte) os.Error {
-	stmt, err := t.client.Prepare("INSERT INTO `" + t.client.Escape(table) + "` (k,d) VALUES (?,?) ON DUPLICATE KEY UPDATE d=VALUES(d)")
-	if err != nil {
-		return err
-	}
-
-	err = stmt.BindParams(keys[0], data)
-	if err != nil {
-		return err
-	}
-
-	err = stmt.Execute()	
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (t *MysqlStorageTransaction) Commit() os.Error {
-	return t.client.Commit()
-}
-
-

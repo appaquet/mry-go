@@ -1,63 +1,77 @@
 package mry
 
 import (
-	"os"
 	"github.com/appaquet/nrv"
 	pb "goprotobuf.googlecode.com/hg/proto"
+	"time"
 )
 
 //
 // Database object bound to a specific domain of a given cluster
 //
 type Db struct {
-	DomainName string
-	Cluster    nrv.Cluster
-	Storage    Storage
-	Domain     *nrv.Domain
+	ServiceName string
+	Cluster     nrv.Cluster
+	Storage     Storage
+	Service     *nrv.Service
 
 	tables map[string]*Table
 }
 
-func (db *Db) Start() {
-	db.Domain = db.Cluster.GetDomain(db.DomainName)
-	db.Domain.Bind(&nrv.Binding{
+// TODO: rollback on panic
+func (db *Db) SetupCluster() {
+	db.Service = db.Cluster.GetService(db.ServiceName)
+	db.Service.Bind(&nrv.Binding{
 		Path: "/execute",
 		// TODO: RESOLVER ANY!
 		Closure: func(request *nrv.ReceivedRequest) {
-			nrv.Log.Debug("mry> Executing transaction: %s", request.Message.Params["t"])
-			trx := request.Message.Params["t"].(*Transaction)
+			logger := nrv.Logger(request.Logger)
+			trace := logger.Trace("mry")
+			iTrx := request.Message.Data["t"]
 
-			// dry execution to disacover token and errors
-			context := db.executeLocal(trx, true)
-			if context.token == nil && context.ret.Error != nil {
-				context.setError("Couldn't find token for transaction")
-			}
+			if trx, ok := iTrx.(*Transaction); ok {
+				logger.Debug("Executing transaction %d", *trx.Id)
 
-			// continue if no error
-			if context.ret.Error == nil { 
-				nrv.Log.Trace("mry> Transaction has token %s", context.token)
-
-				context = db.executeLocal(trx, false)
-				if context.ret.Error == nil {
-					err := context.storageTrx.Commit()
-					if err != nil {
-						context.setError("Couldn't commit transaction: %s", err)
-					}
-				} else {
-					nrv.Log.Debug("mry> Error executing transaction: %s", context.ret.Error)
+				// dry execution to discover token and some errors
+				traceDry := logger.Trace("execute_dry")
+				context := db.executeLocal(trx, logger, true)
+				if context.token == nil && context.ret.Error == nil {
+					context.setError("Couldn't find token for transaction")
 				}
-			} else {
-				nrv.Log.Debug("mry> Error executing transaction in dry mode: %s", context.ret.Error)
-			}
+				traceDry.End()
 
-			request.Respond(&nrv.Message{
-				Params:nrv.Map{	
+				// continue if no error
+				if context.ret.Error == nil {
+					logger.Debug("Transaction has token %d", *context.token)
+
+					traceReal := logger.Trace("execute_real")
+					context = db.executeLocal(trx, logger, false)
+					if context.ret.Error == nil {
+						err := context.storageTrx.Commit()
+						if err != nil {
+							context.setError("Couldn't commit transaction: %s", err)
+						}
+					} else {
+						logger.Debug("Error executing transaction: %s", context.ret.Error)
+					}
+					traceReal.End()
+				} else {
+					context.storageTrx.Rollback()
+					logger.Debug("Error executing transaction in dry mode: %s", context.ret.Error)
+				}
+				trace.End()
+
+				request.Reply(nrv.Map{
 					"t": &Transaction{
-						Id: trx.Id,
+						Id:     trx.Id,
 						Return: context.ret,
 					},
-				},
-			})
+				})
+			} else {
+				logger.Error("Received a null transaction")
+
+			}
+
 		},
 	})
 
@@ -67,40 +81,48 @@ func (db *Db) Start() {
 
 func (db *Db) NewTransaction(cb func(b *TransactionBlock)) *Transaction {
 	trx := &Transaction{
-		Id: pb.Uint64(0), // TODO: put real id from nrv		
+		Id: pb.Uint64(uint64(time.Now().UnixNano())), // TODO: put real id from nrv		
 	}
 	cb(trx.newBlock())
 	return trx
 }
 
 func (db *Db) Execute(t Transactable) *TransactionReturn {
+	return db.ExecuteLogger(t, &nrv.RequestLogger{})
+}
+
+func (db *Db) ExecuteLogger(t Transactable, logger nrv.Logger) *TransactionReturn {
 	trx := t.GetTransaction()
-	resp := <-db.Domain.CallChan("/execute", &nrv.Request{
+	resp := <-db.Service.CallChan("/execute", &nrv.Request{
 		Message: &nrv.Message{
-			Params: nrv.Map{
+			Logger: logger,
+			Data: nrv.Map{
 				"t": trx,
 			},
 		},
 	})
-	return resp.Message.Params["t"].(*Transaction).Return
+	return resp.Message.Data["t"].(*Transaction).Return
 }
 
-func (db *Db) executeLocal(trx *Transaction, dry bool) *transactionContext {
+func (db *Db) executeLocal(trx *Transaction, logger nrv.Logger, dry bool) *transactionContext {
 	context := &transactionContext{
-		dry: dry,
-		db:  db,
-		trx: trx,
+		dry:        dry,
+		db:         db,
+		trx:        trx,
+		logger:     logger,
 		storageTrx: nil,
 	}
 	context.init()
 
-	storageTrx, err := db.Storage.GetTransaction()
-	if err != nil {
-		context.setError("Couldn't get storage transaction: %s", err)
-		return context
+	if !dry {
+		trxTime := time.Unix(0, int64(*trx.Id))
+		storageTrx, err := db.Storage.GetTransaction(trxTime)
+		if err != nil {
+			context.setError("Couldn't get storage transaction: %s", err)
+			return context
+		}
+		context.storageTrx = storageTrx
 	}
-
-	context.storageTrx = storageTrx
 
 	trx.execute(context)
 	return context
@@ -130,7 +152,6 @@ type Table struct {
 // network
 //
 type pbMarshaller struct {
-
 }
 
 func (pbm *pbMarshaller) MarshallerName() string {
@@ -144,11 +165,11 @@ func (pbm *pbMarshaller) CanMarshal(obj interface{}) bool {
 	return false
 }
 
-func (pbm *pbMarshaller) Marshal(obj interface{}) ([]byte, os.Error) {
+func (pbm *pbMarshaller) Marshal(obj interface{}) ([]byte, error) {
 	return pb.Marshal(obj)
 }
 
-func (pbm *pbMarshaller) Unmarshal(bytes []byte) (interface{}, os.Error) {
+func (pbm *pbMarshaller) Unmarshal(bytes []byte) (interface{}, error) {
 	trx := &Transaction{}
 	err := pb.Unmarshal(bytes, trx)
 	return trx, err

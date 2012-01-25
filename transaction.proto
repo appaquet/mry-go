@@ -34,16 +34,26 @@ message TransactionVariable {
 message TransactionValue {
 	optional int64 int_value = 1;
 	optional bool bool_value = 2;
-	optional float float_value = 3;
-	optional double double_value = 4;
-	optional string string_value = 5;
-	optional bytes bytes_value = 6;
+	optional double double_value = 3;
+	optional string string_value = 4;
+	optional bytes bytes_value = 5;
+	optional TransactionCollection array = 6;
+	optional TransactionCollection map = 7;
+}
+
+message TransactionCollection {
+	repeated TransactionCollectionValue values = 1;
+}
+
+message TransactionCollectionValue {
+	required TransactionValue value = 1;
+	optional string key = 2;
 }
 
 message TransactionObject {
 	optional TransactionValue value = 1;
 	optional TransactionVariable variable = 2;
-};
+}
 
 message TransactionOperation {
 	optional group Set = 1 {
@@ -63,6 +73,10 @@ message TransactionOperation {
 	};
 	optional group Return = 4 {
 		repeated TransactionObject data = 1;
+	};
+	optional group GetAll = 5 {
+		required TransactionVariable source = 1;
+		required TransactionVariable destination = 2;
 	};
 }
 
