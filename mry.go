@@ -1,8 +1,8 @@
 package mry
 
 import (
+	pb "code.google.com/p/goprotobuf/proto"
 	"github.com/appaquet/nrv"
-	pb "goprotobuf.googlecode.com/hg/proto"
 	"time"
 )
 
@@ -15,11 +15,13 @@ type Db struct {
 	Storage     Storage
 	Service     *nrv.Service
 
-	tables map[string]*Table
+	*Model
 }
 
 // TODO: rollback on panic
 func (db *Db) SetupCluster() {
+	db.Model = newModel()
+
 	db.Service = db.Cluster.GetService(db.ServiceName)
 	db.Service.Bind(&nrv.Binding{
 		Path: "/execute",
@@ -79,7 +81,7 @@ func (db *Db) SetupCluster() {
 	db.Storage.Init()
 }
 
-func (db *Db) NewTransaction(cb func(b *TransactionBlock)) *Transaction {
+func (db *Db) NewTransaction(cb func(b Block)) *Transaction {
 	trx := &Transaction{
 		Id: pb.Uint64(uint64(time.Now().UnixNano())), // TODO: put real id from nrv		
 	}
@@ -126,25 +128,6 @@ func (db *Db) executeLocal(trx *Transaction, logger nrv.Logger, dry bool) *trans
 
 	trx.execute(context)
 	return context
-}
-
-func (db *Db) GetTable(name string) *Table {
-	table, found := db.tables[name]
-
-	// TODO: probably shouldn't create it straight away, but wait for user to create it (return error??)
-	if !found {
-		table = &Table{name}
-		db.tables[name] = table
-	}
-
-	return table
-}
-
-//
-// Structure that represents a table in the storage
-//
-type Table struct {
-	Name string
 }
 
 //

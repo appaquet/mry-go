@@ -1,9 +1,9 @@
 package mry
 
 import (
+	pb "code.google.com/p/goprotobuf/proto"
 	"fmt"
 	"github.com/appaquet/nrv"
-	pb "goprotobuf.googlecode.com/hg/proto"
 	"reflect"
 )
 

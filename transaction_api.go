@@ -1,9 +1,9 @@
 package mry
 
 import (
+	pb "code.google.com/p/goprotobuf/proto"
 	"errors"
 	"fmt"
-	pb "goprotobuf.googlecode.com/hg/proto"
 
 	"reflect"
 )
@@ -14,6 +14,24 @@ type Transactable interface {
 }
 
 type Block interface {
+	From(name string) BlockVariable
+	Into(name string) BlockVariable
+	Return(data ...interface{}) BlockVariable
+}
+
+type Return interface {
+	GetAll() []interface{}
+	Into(destinations ...interface{}) error
+}
+
+type BlockVariable interface {
+	Rel(tableName string) BlockVariable
+	Get(key interface{}) BlockVariable
+	Set(key interface{}, val interface{}) BlockVariable
+	Return() BlockVariable
+	Filter(something interface{}) BlockVariable
+	Order(something interface{}) BlockVariable
+	GetAll() BlockVariable
 }
 
 // Transaction that encapsulates operations that will be executed on 
@@ -84,7 +102,7 @@ func (b *TransactionBlock) addOperation(op *TransactionOperation) {
 	b.Operations = append(b.Operations, op)
 }
 
-func (b *TransactionBlock) From(name string) *clientVar {
+func (b *TransactionBlock) From(name string) BlockVariable {
 	nv := b.newClientVariable()
 	b.addOperation(&TransactionOperation{
 		GetTable: &TransactionOperation_GetTable{
@@ -95,11 +113,11 @@ func (b *TransactionBlock) From(name string) *clientVar {
 	return nv
 }
 
-func (b *TransactionBlock) Into(name string) *clientVar {
+func (b *TransactionBlock) Into(name string) BlockVariable {
 	return b.From(name)
 }
 
-func (b *TransactionBlock) Return(data ...interface{}) *clientVar {
+func (b *TransactionBlock) Return(data ...interface{}) BlockVariable {
 	nv := b.newClientVariable()
 
 	objData := make([]*TransactionObject, len(data))
@@ -127,7 +145,7 @@ func (v *clientVar) getBlock() *TransactionBlock {
 	return v.block
 }
 
-func (v *clientVar) Rel(tableName string) *clientVar {
+func (v *clientVar) Rel(tableName string) BlockVariable {
 	b := v.getBlock()
 	nv := b.newClientVariable()
 	b.addOperation(&TransactionOperation{
@@ -141,7 +159,7 @@ func (v *clientVar) Rel(tableName string) *clientVar {
 
 }
 
-func (v *clientVar) Get(key interface{}) *clientVar {
+func (v *clientVar) Get(key interface{}) BlockVariable {
 	b := v.getBlock()
 	nv := b.newClientVariable()
 	b.addOperation(&TransactionOperation{
@@ -154,7 +172,7 @@ func (v *clientVar) Get(key interface{}) *clientVar {
 	return nv
 }
 
-func (v *clientVar) Set(key interface{}, val interface{}) *clientVar {
+func (v *clientVar) Set(key interface{}, val interface{}) BlockVariable {
 	b := v.getBlock()
 	nv := b.newClientVariable()
 	b.addOperation(&TransactionOperation{
@@ -167,7 +185,7 @@ func (v *clientVar) Set(key interface{}, val interface{}) *clientVar {
 	return nv
 }
 
-func (v *clientVar) Return() *clientVar {
+func (v *clientVar) Return() BlockVariable {
 	b := v.getBlock()
 	nv := b.newClientVariable()
 	b.addOperation(&TransactionOperation{
@@ -178,19 +196,19 @@ func (v *clientVar) Return() *clientVar {
 	return nv
 }
 
-func (v *clientVar) Filter(something interface{}) *clientVar {
+func (v *clientVar) Filter(something interface{}) BlockVariable {
 	nv := v.getBlock().newClientVariable()
 	// TODO: implement
 	return nv
 }
 
-func (v *clientVar) Order(something interface{}) *clientVar {
+func (v *clientVar) Order(something interface{}) BlockVariable {
 	nv := v.getBlock().newClientVariable()
 	// TODO: implement
 	return nv
 }
 
-func (v *clientVar) GetAll() *clientVar {
+func (v *clientVar) GetAll() BlockVariable {
 	b := v.getBlock()
 	nv := b.newClientVariable()
 	b.addOperation(&TransactionOperation{

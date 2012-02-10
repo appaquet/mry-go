@@ -49,15 +49,74 @@ func (m *MysqlStorage) GetTransaction(trxTime time.Time) (StorageTransaction, er
 	}, nil
 }
 
-func (m *MysqlStorage) CreateTable(table string, depth int) error {
-	trx, err := m.GetTransaction(time.Now())
+func (m *MysqlStorage) SyncModel(model *Model) error {
+	client, err := m.getClient()
 	if err != nil {
 		return err
 	}
 
-	mTrx := trx.(*MysqlStorageTransaction)
 
-	sql := "CREATE TABLE `" + mTrx.client.Escape(table) + "` ("
+	// get tables
+	exstTables := make(map[string]bool)
+	err = client.Query("SHOW TABLES")
+	if err != nil {
+		return err
+	}
+
+	res, err := client.UseResult()
+	if err != nil {
+		return err
+	}
+
+	for {
+		row := res.FetchRow()
+		if row == nil {
+			break
+		}
+
+		exstTables[row[0].(string)] = true
+	}
+	client.Close()
+
+
+	client, err = m.getClient()
+	if err != nil {
+		return err
+	}
+
+
+	// create missing tables
+	var f func(depth int, prefix string, col *tableCollection) error
+	f = func(depth int, prefix string, col *tableCollection) error {
+		for _, table := range col.ToSlice() {
+			prefixedTable := prefix + table.Name
+			if _, found := exstTables[table.Name]; !found {
+				err := m.createTable(client, prefixedTable, depth)
+				if err != nil {
+					return err
+				}
+			}
+
+			if table.subTables.Len() > 0 {
+				err := f(depth + 1, prefixedTable + "_", table.subTables)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+	err = f(1, "", model.tableCollection)
+	if err != nil {
+		return err
+	}
+
+	return client.Close()
+}
+
+func (m *MysqlStorage) createTable(client *mysql.Client, table string, depth int) error {
+	sql := "CREATE TABLE `" + client.Escape(table) + "` ("
 	sql = sql + "	`t` bigint(20) NOT NULL AUTO_INCREMENT,"
 
 	kList := ""
@@ -73,12 +132,7 @@ func (m *MysqlStorage) CreateTable(table string, depth int) error {
 	sql = sql + "	PRIMARY KEY (`t`," + kList + ")"
 	sql = sql + ") ENGINE=InnoDB  DEFAULT CHARSET=utf8;"
 
-	err = mTrx.client.Query(sql)
-	if err != nil {
-		return err
-	}
-
-	err = mTrx.Commit()
+	err := client.Query(sql)
 	if err != nil {
 		return err
 	}
@@ -87,29 +141,22 @@ func (m *MysqlStorage) CreateTable(table string, depth int) error {
 }
 
 func (m *MysqlStorage) Nuke() error {
-	trx, err := m.GetTransaction(time.Now())
+	client, err := m.getClient()
 	if err != nil {
 		return err
 	}
 
-	mTrx := trx.(*MysqlStorageTransaction)
-
-	err = mTrx.client.Query("DROP DATABASE " + mTrx.client.Escape(m.Database))
+	err = client.Query("DROP DATABASE " + client.Escape(m.Database))
 	if err != nil {
 		return err
 	}
 
-	err = mTrx.client.Query("CREATE DATABASE " + mTrx.client.Escape(m.Database))
+	err = client.Query("CREATE DATABASE " + client.Escape(m.Database))
 	if err != nil {
 		return err
 	}
 
-	err = mTrx.Commit()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return client.Close()
 }
 
 type MysqlStorageTransaction struct {
@@ -120,14 +167,14 @@ type MysqlStorageTransaction struct {
 
 func (t *MysqlStorageTransaction) buildBinding(row *Row, nbKeys int) []interface{} {
 	switch nbKeys {
-		case 1:
-			return []interface{}{&row.IntTimestamp, &row.Key1, &row.Data}
-		case 2:
-			return []interface{}{&row.IntTimestamp, &row.Key1, &row.Key2, &row.Data}
-		case 3:
-			return []interface{}{&row.IntTimestamp, &row.Key1, &row.Key2, &row.Key3, &row.Data}
-		case 4:
-			return []interface{}{&row.IntTimestamp, &row.Key1, &row.Key2, &row.Key3, &row.Key4, &row.Data}
+	case 1:
+		return []interface{}{&row.IntTimestamp, &row.Key1, &row.Data}
+	case 2:
+		return []interface{}{&row.IntTimestamp, &row.Key1, &row.Key2, &row.Data}
+	case 3:
+		return []interface{}{&row.IntTimestamp, &row.Key1, &row.Key2, &row.Key3, &row.Data}
+	case 4:
+		return []interface{}{&row.IntTimestamp, &row.Key1, &row.Key2, &row.Key3, &row.Key4, &row.Data}
 	}
 
 	panic("Unsuported number of keys")
@@ -143,7 +190,7 @@ func (t *MysqlStorageTransaction) Get(table string, keys []string) (*Row, error)
 	}
 
 	curKey := fmt.Sprintf("k%d", len(keys))
-	stmt, err := t.client.Prepare("SELECT t,"+curKey+",d FROM `" + t.client.Escape(table) + "` WHERE " + sqlKeys + " AND `t` <= ? ORDER BY `t` DESC LIMIT 0,1")
+	stmt, err := t.client.Prepare("SELECT t," + curKey + ",d FROM `" + t.client.Escape(table) + "` WHERE " + sqlKeys + " AND `t` <= ? ORDER BY `t` DESC LIMIT 0,1")
 	if err != nil {
 		return nil, err
 	}
@@ -189,21 +236,21 @@ func (t *MysqlStorageTransaction) GetQuery(query StorageQuery) (RowIterator, err
 
 	// prepare query
 	table := t.client.Escape(query.Table)
-	sql :=      "SELECT top.*"
-	sql = sql + " FROM `"+table+"` AS top"
+	sql := "SELECT top.*"
+	sql = sql + " FROM `" + table + "` AS top"
 	sql = sql + " WHERE top.t = ("
 	sql = sql + "   SELECT MAX(alt.t)"
-	sql = sql + "   FROM `"+table+"` AS alt"
-	sql = sql + "   WHERE " 
+	sql = sql + "   FROM `" + table + "` AS alt"
+	sql = sql + "   WHERE "
 
 	groupKeys := ""
-	for i:=1; i <= len(query.TablePrefix)+1; i++ {
+	for i := 1; i <= len(query.TablePrefix)+1; i++ {
 		if i >= 2 {
 			sql = sql + " AND "
 			groupKeys = groupKeys + ", "
 		}
 		groupKeys = groupKeys + " alt.k" + strconv.Itoa(i)
-		sql = sql + " alt.k"+strconv.Itoa(i)+" = top.k"+strconv.Itoa(i)
+		sql = sql + " alt.k" + strconv.Itoa(i) + " = top.k" + strconv.Itoa(i)
 	}
 
 	sql = sql + "   GROUP BY " + groupKeys
@@ -269,34 +316,34 @@ func (t *MysqlStorageTransaction) Set(table string, keys []string, data []byte) 
 	return nil
 }
 
-func (t *MysqlStorageTransaction) GetTimeline(table string, nbKey int, from time.Time, count int) ([][2]*Row, error) {
+func (t *MysqlStorageTransaction) GetTimeline(table string, nbKey int, from time.Time, count int) ([]RowMutation, error) {
 	sql := ""
 	sql = sql + "	SELECT new.*, old.*"
 	sql = sql + "	FROM `" + t.client.Escape(table) + "` AS new "
 	sql = sql + "	LEFT JOIN `" + t.client.Escape(table) + "` AS old ON ("
 
-	for i:=1; i<=nbKey; i++ {
-		sql = sql + "new.k"+strconv.Itoa(i)+" = old.k"+strconv.Itoa(i)+" AND "
+	for i := 1; i <= nbKey; i++ {
+		sql = sql + "new.k" + strconv.Itoa(i) + " = old.k" + strconv.Itoa(i) + " AND "
 	}
 
 	sql = sql + "        old.t < new.t ) "
-	sql = sql + "	WHERE old.t IS NULL OR old.t = ("
+	sql = sql + "	WHERE (old.t IS NULL OR old.t = ("
 	sql = sql + "		SELECT MAX(alt.t)"
 	sql = sql + "		FROM `" + t.client.Escape(table) + "` AS alt"
 	sql = sql + "		WHERE alt.t < new.t "
 
 	groupKeys := ""
-	for i:=1; i<=nbKey; i++ {
-		sql = sql + "   AND alt.k"+strconv.Itoa(i)+" = old.k"+strconv.Itoa(i)
+	for i := 1; i <= nbKey; i++ {
+		sql = sql + "   AND alt.k" + strconv.Itoa(i) + " = old.k" + strconv.Itoa(i)
 
 		if i >= 2 {
 			groupKeys = groupKeys + ", "
 		}
-		groupKeys  = groupKeys + "alt.k"+strconv.Itoa(i)
+		groupKeys = groupKeys + "alt.k" + strconv.Itoa(i)
 	}
 
 	sql = sql + "		GROUP BY " + groupKeys
-	sql = sql + "	)"
+	sql = sql + "	))"
 	sql = sql + fmt.Sprintf("   AND new.t >= %d", from.UnixNano())
 	sql = sql + "	ORDER BY new.t ASC"
 	sql = sql + "	LIMIT 0, " + strconv.Itoa(count)
@@ -323,16 +370,21 @@ func (t *MysqlStorageTransaction) GetTimeline(table string, nbKey int, from time
 		return nil, err
 	}
 
-	ret := make([][2]*Row, 0)
+	ret := make([]RowMutation, 0)
 	for {
 		eof, _ := stmt.Fetch()
 		if eof {
 			break
 		}
 
-		ret = append(ret, [2]*Row{
-			{oldRow.IntTimestamp, oldRow.Timestamp, oldRow.Key1, oldRow.Key2, oldRow.Key3, oldRow.Key4, oldRow.Data},
-			{newRow.IntTimestamp, newRow.Timestamp, newRow.Key1, newRow.Key2, newRow.Key3, newRow.Key4, newRow.Data},
+		// convert timestamp form int to time.Time struct
+		oldRow.ConvertTimestamp()
+		newRow.ConvertTimestamp()
+
+		ret = append(ret, RowMutation{
+			OldRow:      &Row{oldRow.IntTimestamp, oldRow.Timestamp, oldRow.Key1, oldRow.Key2, oldRow.Key3, oldRow.Key4, oldRow.Data},
+			NewRow:      &Row{newRow.IntTimestamp, newRow.Timestamp, newRow.Key1, newRow.Key2, newRow.Key3, newRow.Key4, newRow.Data},
+			LastVersion: false, // TODO: SUPPORT IT!
 		})
 
 		oldRow.Reset()

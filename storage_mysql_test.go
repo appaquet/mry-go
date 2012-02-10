@@ -26,7 +26,9 @@ func getStorage(t *testing.T, nuke bool) Storage {
 func TestGetSet(t *testing.T) {
 	s := getStorage(t, true)
 
-	err := s.CreateTable("getset", 1)
+	model := newModel()
+	model.CreateTable("getset")
+	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +73,9 @@ func TestGetSet(t *testing.T) {
 func TestGetSetRollback(t *testing.T) {
 	s := getStorage(t, false)
 
-	err := s.CreateTable("getsetrollback", 1)
+	model := newModel()
+	model.CreateTable("getsetrollback")
+	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +113,9 @@ func TestGetSetRollback(t *testing.T) {
 func TestGetSetIsolation(t *testing.T) {
 	s := getStorage(t, false)
 
-	err := s.CreateTable("getsetisolation", 1)
+	model := newModel()
+	model.CreateTable("getsetisolation")
+	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,11 +173,12 @@ func TestGetSetIsolation(t *testing.T) {
 func TestQuery(t *testing.T) {
 	s := getStorage(t, false)
 
-	err := s.CreateTable("query", 1)
+	model := newModel()
+	model.CreateTable("query")
+	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
 	}
-
 
 	trx, _ := s.GetTransaction(time.Now())
 	defer trx.Commit()
@@ -202,7 +209,7 @@ func TestQuery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for i:=0; i<2; i++ {
+	for i := 0; i < 2; i++ {
 		row, err := iter.Next()
 		if err != nil {
 			t.Fatal(err)
@@ -232,7 +239,9 @@ func TestQuery(t *testing.T) {
 func TestTimeline(t *testing.T) {
 	s := getStorage(t, false)
 
-	err := s.CreateTable("timeline", 1)
+	model := newModel()
+	model.CreateTable("timeline")
+	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,17 +274,17 @@ func TestTimeline(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, rows := range changes {
-		first, sec := rows[0], rows[1]
+	for _, mut := range changes {
+		first, sec := mut.OldRow, mut.NewRow
 
 		if first.Key1 == "key0" && string(first.Data) == "0value1" && sec.Data != nil {
-			t.Fatalf("Got an 'old' value, expected null: %s - %s", *first, *sec) 
+			t.Fatalf("Got an 'old' value, expected null: %s - %s", *first, *sec)
 		}
 		if first.Key1 == "key1" && string(first.Data) == "1value2" && string(sec.Data) != "1value1" {
-			t.Fatalf("Got invalid old value, expected 1value1: %s - %s", *first, *sec) 
+			t.Fatalf("Got invalid old value, expected 1value1: %s - %s", *first, *sec)
 		}
 		if first.Key1 == "key4" && (string(first.Data) != "4value1" || sec.Data != nil) {
-			t.Fatalf("Got invalid old value, expected 4value1: %s - %s", *first, *sec) 
+			t.Fatalf("Got invalid old value, expected 4value1: %s - %s", *first, *sec)
 		}
 	}
 }
