@@ -20,7 +20,7 @@ type transactionContext struct {
 }
 
 func (tc *transactionContext) setError(message string, params ...interface{}) {
-	errMsg := fmt.Sprintf(message, params)
+	errMsg := fmt.Sprintf(message, params...)
 	tc.logger.Debug("Transaction error: %s", errMsg)
 	tc.ret.Error = &TransactionError{
 		Id:      pb.Uint32(0),
@@ -100,8 +100,17 @@ func (os *TransactionOperation_GetTable) execute(op *TransactionOperation, conte
 
 	if os.Source == nil {
 		destVar := context.getServerVariable(os.Destination)
+
+		// get table from model
+		strTable := os.TableName.getValue(context).ToInterface().(string)
+		table := context.db.GetTable(strTable)
+		if table == nil {
+			context.setError("Table not found", strTable)
+			return
+		}
+
 		destVar.value = &tableValue{
-			table:  os.TableName.getValue(context).ToInterface().(string),
+			table:  table,
 			prefix: []string{},
 		}
 	} else {
@@ -305,7 +314,7 @@ func (qv *queryValue) getAll(context *transactionContext, destination *serverVar
 
 // Table
 type tableValue struct {
-	table  string
+	table  *Table 
 	prefix []string
 }
 
@@ -377,7 +386,7 @@ func (tv *tableValue) getAll(context *transactionContext, destination *serverVar
 
 func (tv *tableValue) toTransactionValue() *TransactionValue {
 	// TODO: return something else ??
-	return toTransactionValue("TABLE " + tv.table)
+	return toTransactionValue("TABLE " + tv.table.Name)
 }
 
 // Value of a row in a table
@@ -426,8 +435,14 @@ func (rv *rowValue) getTable(context *transactionContext, table interface{}, des
 
 	context.logger.Debug("Executing 'getTable' on table %s via %s with key %s", strTable, rv.table, rv.key)
 
+	modelTable := rv.table.table.GetSubTable(strTable)
+	if modelTable == nil {
+		context.setError("Couldn't find table named %s via %s", strTable, rv.table.table.Name)
+		return
+	}
+
 	tv := &tableValue{
-		table:  strTable,
+		table:  modelTable,
 		prefix: append(rv.table.prefix, rv.key),
 	}
 

@@ -9,23 +9,21 @@ import (
 type Storage interface {
 	Init()
 	SyncModel(model *Model) error
-	//CreateTable(table string, depth int) error
-	//CreateIndex(table, column string)
 	GetTransaction(trxTime time.Time) (StorageTransaction, error)
 	Nuke() error
 }
 
 type StorageTransaction interface {
-	Set(table string, keys []string, data []byte) error
-	Get(table string, keys []string) (*Row, error)
+	Set(table *Table, keys []string, data []byte) error
+	Get(table *Table, keys []string) (*Row, error)
 	GetQuery(query StorageQuery) (RowIterator, error)
-	GetTimeline(table string, nbKey int, from time.Time, count int) ([]RowMutation, error)
+	GetTimeline(table *Table, from time.Time, count int) ([]RowMutation, error)
 	Rollback() error
 	Commit() error
 }
 
 type StorageQuery struct {
-	Table       string
+	Table       *Table 
 	TablePrefix []string
 	Limit       int
 }

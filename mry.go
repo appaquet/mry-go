@@ -58,7 +58,9 @@ func (db *Db) SetupCluster() {
 					}
 					traceReal.End()
 				} else {
-					context.storageTrx.Rollback()
+					if context.storageTrx != nil {
+						context.storageTrx.Rollback()
+					}
 					logger.Debug("Error executing transaction in dry mode: %s", context.ret.Error)
 				}
 				trace.End()

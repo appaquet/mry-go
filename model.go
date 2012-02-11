@@ -1,5 +1,9 @@
 package mry
 
+import (
+	"strings"
+)
+
 // Database model
 type Model struct {
 	*tableCollection
@@ -28,12 +32,24 @@ func newTable(name string) *Table {
 	return t
 }
 
-func (t *Table) AddSubTable(name string) *Table {
+func (t *Table) CreateSubTable(name string) *Table {
 	return t.subTables.CreateTable(name)
+}
+
+func (t *Table) GetSubTable(name string) *Table {
+	return t.subTables.GetTable(name)
 }
 
 func (t *Table) SubTables() []*Table {
 	return t.subTables.ToSlice()
+}
+
+func (t *Table) Depth() int {
+	if t.parentTable == nil {
+		return 1
+	}
+
+	return t.parentTable.Depth() + 1
 }
 
 // Index on a field of table
@@ -60,7 +76,13 @@ func (c *tableCollection) Len() int {
 }
 
 func (c *tableCollection) GetTable(name string) *Table {
-	return c.tablesMap[name]
+	sp := strings.Split(name, "/")
+
+	if len(sp) > 1 {
+		return c.tablesMap[sp[0]].GetSubTable(strings.Join(sp[1:], "/"))
+	}
+
+	return c.tablesMap[sp[0]]
 }
 
 func (c *tableCollection) CreateTable(name string) *Table {

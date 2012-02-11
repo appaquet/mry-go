@@ -7,7 +7,7 @@ import (
 )
 
 type TimelineJobFeeder struct {
-	Storage Storage
+	Db      *Db
 	stopped bool
 }
 
@@ -24,13 +24,13 @@ func (f *TimelineJobFeeder) Init(context *job.Context) {
 		}
 
 		for !f.stopped {
-			trx, err := f.Storage.GetTransaction(time.Now())
+			trx, err := f.Db.Storage.GetTransaction(time.Now())
 			if err != nil {
 				nrv.Log.Fatal("Got an error getting transaction in job feeder: %s", err)
 			}
 
 			// TODO: table depth - nb keys!
-			mutations, err := trx.GetTimeline(context.Config["table"].(string), 2, fromTime, 1000)
+			mutations, err := trx.GetTimeline(f.Db.GetTable(context.Config["table"].(string)), fromTime, 1000)
 			if err != nil {
 				nrv.Log.Fatal("Got an error getting timeline in job feeder: %s", err)
 			}

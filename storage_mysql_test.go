@@ -27,7 +27,7 @@ func TestGetSet(t *testing.T) {
 	s := getStorage(t, true)
 
 	model := newModel()
-	model.CreateTable("getset")
+	table := model.CreateTable("getset")
 	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
@@ -40,12 +40,12 @@ func TestGetSet(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = trx.Set("getset", []string{"key1"}, []byte("value1"))
+	err = trx.Set(table, []string{"key1"}, []byte("value1"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	row, err := trx.Get("getset", []string{"key1"})
+	row, err := trx.Get(table, []string{"key1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,12 +54,12 @@ func TestGetSet(t *testing.T) {
 		t.Fatalf("Got different value than set: %s!=value1", row)
 	}
 
-	err = trx.Set("getset", []string{"key1"}, []byte("value2"))
+	err = trx.Set(table, []string{"key1"}, []byte("value2"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	row, err = trx.Get("getset", []string{"key1"})
+	row, err = trx.Get(table, []string{"key1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestGetSetRollback(t *testing.T) {
 	s := getStorage(t, false)
 
 	model := newModel()
-	model.CreateTable("getsetrollback")
+	table := model.CreateTable("getsetrollback")
 	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
@@ -87,7 +87,7 @@ func TestGetSetRollback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = trx.Set("getsetrollback", []string{"key1"}, []byte("value1"))
+	err = trx.Set(table, []string{"key1"}, []byte("value1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -100,7 +100,7 @@ func TestGetSetRollback(t *testing.T) {
 	trx, err = s.GetTransaction(time.Now())
 	defer trx.Rollback()
 
-	row, err := trx.Get("getsetrollback", []string{"key1"})
+	row, err := trx.Get(table, []string{"key1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestGetSetIsolation(t *testing.T) {
 	s := getStorage(t, false)
 
 	model := newModel()
-	model.CreateTable("getsetisolation")
+	table := model.CreateTable("getsetisolation")
 	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
@@ -127,7 +127,7 @@ func TestGetSetIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = trx.Set("getsetisolation", []string{"key1"}, []byte("value1"))
+	err = trx.Set(table, []string{"key1"}, []byte("value1"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,12 +141,12 @@ func TestGetSetIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = trx.Set("getsetisolation", []string{"key1"}, []byte("value2"))
+	err = trx.Set(table, []string{"key1"}, []byte("value2"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	row, err := trx.Get("getsetisolation", []string{"key1"})
+	row, err := trx.Get(table, []string{"key1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,12 +155,12 @@ func TestGetSetIsolation(t *testing.T) {
 		t.Fatalf("Didn't receive expected value: %s!=value2", row)
 	}
 
-	err = trx.Set("getsetisolation", []string{"key1"}, []byte("value3"))
+	err = trx.Set(table, []string{"key1"}, []byte("value3"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	row, err = trx.Get("getsetisolation", []string{"key1"})
+	row, err = trx.Get(table, []string{"key1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestQuery(t *testing.T) {
 	s := getStorage(t, false)
 
 	model := newModel()
-	model.CreateTable("query")
+	table := model.CreateTable("query")
 	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
@@ -182,28 +182,28 @@ func TestQuery(t *testing.T) {
 
 	trx, _ := s.GetTransaction(time.Now())
 	defer trx.Commit()
-	trx.Set("query", []string{"key0"}, []byte("0value1"))
-	trx.Set("query", []string{"key1"}, []byte("1value1"))
-	trx.Set("query", []string{"key2"}, []byte("2value2"))
-	trx.Set("query", []string{"key3"}, []byte("3value1"))
+	trx.Set(table, []string{"key0"}, []byte("0value1"))
+	trx.Set(table, []string{"key1"}, []byte("1value1"))
+	trx.Set(table, []string{"key2"}, []byte("2value2"))
+	trx.Set(table, []string{"key3"}, []byte("3value1"))
 	trx.Commit()
 
 	trx, _ = s.GetTransaction(time.Now().Add(1))
 	defer trx.Commit()
-	trx.Set("query", []string{"key1"}, []byte("1value2"))
-	trx.Set("query", []string{"key2"}, []byte("2value2"))
+	trx.Set(table, []string{"key1"}, []byte("1value2"))
+	trx.Set(table, []string{"key2"}, []byte("2value2"))
 	trx.Commit()
 
 	trx, _ = s.GetTransaction(time.Now().Add(2))
 	defer trx.Commit()
-	trx.Set("query", []string{"key1"}, []byte("1value3"))
+	trx.Set(table, []string{"key1"}, []byte("1value3"))
 	trx.Commit()
 
 	trx, _ = s.GetTransaction(time.Now().Add(3))
 	defer trx.Commit()
 
 	iter, err := trx.GetQuery(StorageQuery{
-		Table: "query",
+		Table: table,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -240,7 +240,7 @@ func TestTimeline(t *testing.T) {
 	s := getStorage(t, false)
 
 	model := newModel()
-	model.CreateTable("timeline")
+	table := model.CreateTable("timeline")
 	err := s.SyncModel(model)
 	if err != nil {
 		t.Fatal(err)
@@ -248,28 +248,28 @@ func TestTimeline(t *testing.T) {
 
 	trx, _ := s.GetTransaction(time.Now())
 	defer trx.Commit()
-	trx.Set("timeline", []string{"key0"}, []byte("0value1"))
-	trx.Set("timeline", []string{"key1"}, []byte("1value1"))
-	trx.Set("timeline", []string{"key2"}, []byte("2value2"))
-	trx.Set("timeline", []string{"key3"}, []byte("3value1"))
+	trx.Set(table, []string{"key0"}, []byte("0value1"))
+	trx.Set(table, []string{"key1"}, []byte("1value1"))
+	trx.Set(table, []string{"key2"}, []byte("2value2"))
+	trx.Set(table, []string{"key3"}, []byte("3value1"))
 	trx.Commit()
 
 	trx, _ = s.GetTransaction(time.Now().Add(1))
 	defer trx.Commit()
-	trx.Set("timeline", []string{"key1"}, []byte("1value2"))
-	trx.Set("timeline", []string{"key2"}, []byte("2value2"))
+	trx.Set(table, []string{"key1"}, []byte("1value2"))
+	trx.Set(table, []string{"key2"}, []byte("2value2"))
 	trx.Commit()
 
 	trx, _ = s.GetTransaction(time.Now().Add(2))
 	defer trx.Commit()
-	trx.Set("timeline", []string{"key1"}, []byte("1value3"))
-	trx.Set("timeline", []string{"key4"}, []byte("4value1"))
+	trx.Set(table, []string{"key1"}, []byte("1value3"))
+	trx.Set(table, []string{"key4"}, []byte("4value1"))
 	trx.Commit()
 
 	trx, _ = s.GetTransaction(time.Now().Add(3))
 	defer trx.Commit()
 
-	changes, err := trx.GetTimeline("timeline", 1, time.Unix(0, 0), 100)
+	changes, err := trx.GetTimeline(table, time.Unix(0, 0), 100)
 	if err != nil {
 		t.Fatal(err)
 	}

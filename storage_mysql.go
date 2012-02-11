@@ -33,6 +33,21 @@ func (m *MysqlStorage) getClient() (*mysql.Client, error) {
 	return mysql.DialTCP(m.Host, m.Username, m.Password, m.Database)
 }
 
+func (m *MysqlStorage) toTableString(table *Table) string {
+	current := table
+	name := ""
+
+	for current != nil {
+		if name != "" {
+			name = "_"+name
+		}
+		name = current.Name + name
+		current = current.parentTable
+	}
+
+	return name
+}
+
 func (m *MysqlStorage) GetTransaction(trxTime time.Time) (StorageTransaction, error) {
 	client, err := m.getClient()
 	if err != nil {
@@ -180,7 +195,7 @@ func (t *MysqlStorageTransaction) buildBinding(row *Row, nbKeys int) []interface
 	panic("Unsuported number of keys")
 }
 
-func (t *MysqlStorageTransaction) Get(table string, keys []string) (*Row, error) {
+func (t *MysqlStorageTransaction) Get(table *Table, keys []string) (*Row, error) {
 	sqlKeys := ""
 	for i := 1; i <= len(keys); i++ {
 		if sqlKeys != "" {
@@ -190,7 +205,7 @@ func (t *MysqlStorageTransaction) Get(table string, keys []string) (*Row, error)
 	}
 
 	curKey := fmt.Sprintf("k%d", len(keys))
-	stmt, err := t.client.Prepare("SELECT t," + curKey + ",d FROM `" + t.client.Escape(table) + "` WHERE " + sqlKeys + " AND `t` <= ? ORDER BY `t` DESC LIMIT 0,1")
+	stmt, err := t.client.Prepare("SELECT t," + curKey + ",d FROM `" + t.client.Escape(t.storage.toTableString(table)) + "` WHERE " + sqlKeys + " AND `t` <= ? ORDER BY `t` DESC LIMIT 0,1")
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +250,7 @@ func (t *MysqlStorageTransaction) GetQuery(query StorageQuery) (RowIterator, err
 	// TODO: support query filters, limit, etc.
 
 	// prepare query
-	table := t.client.Escape(query.Table)
+	table := t.client.Escape(t.storage.toTableString(query.Table))
 	sql := "SELECT top.*"
 	sql = sql + " FROM `" + table + "` AS top"
 	sql = sql + " WHERE top.t = ("
@@ -244,7 +259,7 @@ func (t *MysqlStorageTransaction) GetQuery(query StorageQuery) (RowIterator, err
 	sql = sql + "   WHERE "
 
 	groupKeys := ""
-	for i := 1; i <= len(query.TablePrefix)+1; i++ {
+	for i := 1; i <= query.Table.Depth(); i++ {
 		if i >= 2 {
 			sql = sql + " AND "
 			groupKeys = groupKeys + ", "
@@ -267,7 +282,7 @@ func (t *MysqlStorageTransaction) GetQuery(query StorageQuery) (RowIterator, err
 	}
 
 	iterator := &mysqlRowIterator{&Row{}, stmt}
-	bindings := t.buildBinding(iterator.row, len(query.TablePrefix)+1)
+	bindings := t.buildBinding(iterator.row, query.Table.Depth())
 	err = stmt.BindResult(bindings...)
 	if err != nil {
 		return nil, err
@@ -276,7 +291,7 @@ func (t *MysqlStorageTransaction) GetQuery(query StorageQuery) (RowIterator, err
 	return iterator, nil
 }
 
-func (t *MysqlStorageTransaction) Set(table string, keys []string, data []byte) error {
+func (t *MysqlStorageTransaction) Set(table *Table, keys []string, data []byte) error {
 	sqlKeys := ""
 	sqlUpdateKeys := ""
 	sqlValues := ""
@@ -291,7 +306,7 @@ func (t *MysqlStorageTransaction) Set(table string, keys []string, data []byte) 
 		sqlValues += "?"
 	}
 
-	stmt, err := t.client.Prepare("INSERT INTO `" + t.client.Escape(table) + "` (`t`, " + sqlKeys + ",d) VALUES (?," + sqlValues + ",?) ON DUPLICATE KEY UPDATE d=VALUES(d)")
+	stmt, err := t.client.Prepare("INSERT INTO `" + t.client.Escape(t.storage.toTableString(table)) + "` (`t`, " + sqlKeys + ",d) VALUES (?," + sqlValues + ",?) ON DUPLICATE KEY UPDATE d=VALUES(d)")
 	if err != nil {
 		return err
 	}
@@ -316,24 +331,25 @@ func (t *MysqlStorageTransaction) Set(table string, keys []string, data []byte) 
 	return nil
 }
 
-func (t *MysqlStorageTransaction) GetTimeline(table string, nbKey int, from time.Time, count int) ([]RowMutation, error) {
+func (t *MysqlStorageTransaction) GetTimeline(table *Table, from time.Time, count int) ([]RowMutation, error) {
+	tableName := t.client.Escape(t.storage.toTableString(table))
 	sql := ""
 	sql = sql + "	SELECT new.*, old.*"
-	sql = sql + "	FROM `" + t.client.Escape(table) + "` AS new "
-	sql = sql + "	LEFT JOIN `" + t.client.Escape(table) + "` AS old ON ("
+	sql = sql + "	FROM `" + tableName + "` AS new "
+	sql = sql + "	LEFT JOIN `" + tableName + "` AS old ON ("
 
-	for i := 1; i <= nbKey; i++ {
+	for i := 1; i <= table.Depth(); i++ {
 		sql = sql + "new.k" + strconv.Itoa(i) + " = old.k" + strconv.Itoa(i) + " AND "
 	}
 
 	sql = sql + "        old.t < new.t ) "
 	sql = sql + "	WHERE (old.t IS NULL OR old.t = ("
 	sql = sql + "		SELECT MAX(alt.t)"
-	sql = sql + "		FROM `" + t.client.Escape(table) + "` AS alt"
+	sql = sql + "		FROM `" + tableName + "` AS alt"
 	sql = sql + "		WHERE alt.t < new.t "
 
 	groupKeys := ""
-	for i := 1; i <= nbKey; i++ {
+	for i := 1; i <= table.Depth(); i++ {
 		sql = sql + "   AND alt.k" + strconv.Itoa(i) + " = old.k" + strconv.Itoa(i)
 
 		if i >= 2 {
@@ -361,8 +377,8 @@ func (t *MysqlStorageTransaction) GetTimeline(table string, nbKey int, from time
 	oldRow := &Row{}
 	newRow := &Row{}
 
-	bindings1 := t.buildBinding(oldRow, nbKey)
-	bindings2 := t.buildBinding(newRow, nbKey)
+	bindings1 := t.buildBinding(oldRow, table.Depth())
+	bindings2 := t.buildBinding(newRow, table.Depth())
 	bindings1 = append(bindings1, bindings2...)
 
 	err = stmt.BindResult(bindings1...)
