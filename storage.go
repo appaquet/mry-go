@@ -2,14 +2,13 @@ package mry
 
 import (
 	"time"
+	"github.com/appaquet/nrv"
 )
-
-// TODO: in memory transaction shim 
 
 type Storage interface {
 	Init()
 	SyncModel(model *Model) error
-	GetTransaction(trxTime time.Time) (StorageTransaction, error)
+	GetTransaction(token nrv.Token, trxTime time.Time) (StorageTransaction, error)
 	Nuke() error
 }
 

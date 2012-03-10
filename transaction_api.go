@@ -229,7 +229,11 @@ func (v *clientVar) GetAll() BlockVariable {
 func (r *TransactionReturn) GetAll() []interface{} {
 	ret := make([]interface{}, len(r.Data))
 	for i, tVal := range r.Data {
-		ret[i] = tVal.ToInterface()
+		if tVal != nil {
+			ret[i] = tVal.ToInterface()
+		} else {
+			ret[i] = nil
+		}
 	}
 	return ret
 }
@@ -242,11 +246,22 @@ func (r *TransactionReturn) Into(destinations ...interface{}) error {
 		rflDest := reflect.ValueOf(destinations[i])
 		rflVal := reflect.ValueOf(iVals[i])
 
-		elmDest := rflDest.Elem()
-		if elmDest.CanSet() && elmDest.Type().AssignableTo(rflVal.Type()) {
-			elmDest.Set(rflVal)
+		// if got a nil value, set dest nil
+		if !rflVal.IsValid() {
+			destinations[i] = nil
 		} else {
-			err = errors.New(fmt.Sprintf("Cannot set destination %i: Destination non-settable or value unassignable (val %s)", i, rflVal))
+			// directly assignable (ptr to ptr)
+			if rflDest.Type().AssignableTo(rflVal.Type()) {
+				rflDest.Set(rflVal)
+			} else {
+				// else, set ptr value
+				elmDest := rflDest.Elem()
+				if elmDest.CanSet() && elmDest.Type().AssignableTo(rflVal.Type()) {
+					elmDest.Set(rflVal)
+				} else {
+					err = errors.New(fmt.Sprintf("Cannot set destination %i: Destination non-settable or value unassignable (val %s)", i, rflVal))
+				}
+			}
 		}
 	}
 

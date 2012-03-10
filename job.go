@@ -1,6 +1,7 @@
 package mry
 
 import (
+	pb "code.google.com/p/goprotobuf/proto"
 	"github.com/appaquet/job"
 	"github.com/appaquet/nrv"
 	"time"
@@ -24,21 +25,56 @@ func (f *TimelineJobFeeder) Init(context *job.Context) {
 		}
 
 		for !f.stopped {
-			trx, err := f.Db.Storage.GetTransaction(time.Now())
+
+			// TODO: use token
+			trx, err := f.Db.Storage.GetTransaction(nrv.Token(0), time.Now())
 			if err != nil {
 				nrv.Log.Fatal("Got an error getting transaction in job feeder: %s", err)
 			}
 
-			// TODO: table depth - nb keys!
-			mutations, err := trx.GetTimeline(f.Db.GetTable(context.Config["table"].(string)), fromTime, 1000)
-			if err != nil {
-				nrv.Log.Fatal("Got an error getting timeline in job feeder: %s", err)
+			tableName := context.Config["table"].(string)
+			table := f.Db.GetTable(tableName)
+			if table == nil {
+				nrv.Log.Fatal("Table %s doesn't exist", tableName)
+				return
 			}
 
+			mutations, err := trx.GetTimeline(table, fromTime, 1000)
+			if err != nil {
+				nrv.Log.Fatal("Got an error getting timeline in job feeder: %s", err)
+				return
+			}
+
+
 			for _, mutation := range mutations {
+				srMutation := &JobRowMutation{}
+
+				newValue := &TransactionValue{}
+				pb.Unmarshal(mutation.NewRow.Data, newValue)
+				srMutation.New = &JobRow{
+					Timestamp: pb.Uint64(uint64(mutation.NewRow.IntTimestamp)),
+					Key1: pb.String(mutation.NewRow.Key1),
+					Key2: pb.String(mutation.NewRow.Key2),
+					Key3: pb.String(mutation.NewRow.Key3),
+					Key4: pb.String(mutation.NewRow.Key4),
+					Data: newValue,
+				}
+
+				oldValue := &TransactionValue{}
+				if mutation.OldRow.Key1 != "" {
+					pb.Unmarshal(mutation.OldRow.Data, oldValue)
+					srMutation.Old = &JobRow{
+						Timestamp: pb.Uint64(uint64(mutation.OldRow.IntTimestamp)),
+						Key1: pb.String(mutation.OldRow.Key1),
+						Key2: pb.String(mutation.OldRow.Key2),
+						Key3: pb.String(mutation.OldRow.Key3),
+						Key4: pb.String(mutation.OldRow.Key4),
+						Data: oldValue,
+					}
+				}
+
 				context.DataChan <- nrv.Map{
-					"new": mutation.NewRow, // TODO: Serialize !!
-					"old": mutation.OldRow,
+					"mutation": srMutation,
 				}
 
 				fromTime = mutation.NewRow.Timestamp.Add(1)

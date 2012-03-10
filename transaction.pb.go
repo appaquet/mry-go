@@ -158,5 +158,27 @@ type TransactionOperation_GetAll struct {
 func (this *TransactionOperation_GetAll) Reset()         { *this = TransactionOperation_GetAll{} }
 func (this *TransactionOperation_GetAll) String() string { return proto.CompactTextString(this) }
 
+type JobRow struct {
+	Timestamp        *uint64           `protobuf:"varint,1,req,name=timestamp" json:"timestamp,omitempty"`
+	Data             *TransactionValue `protobuf:"bytes,2,req,name=data" json:"data,omitempty"`
+	Key1             *string           `protobuf:"bytes,3,req,name=key1" json:"key1,omitempty"`
+	Key2             *string           `protobuf:"bytes,4,opt,name=key2" json:"key2,omitempty"`
+	Key3             *string           `protobuf:"bytes,5,opt,name=key3" json:"key3,omitempty"`
+	Key4             *string           `protobuf:"bytes,6,opt,name=key4" json:"key4,omitempty"`
+	XXX_unrecognized []byte            `json:",omitempty"`
+}
+
+func (this *JobRow) Reset()         { *this = JobRow{} }
+func (this *JobRow) String() string { return proto.CompactTextString(this) }
+
+type JobRowMutation struct {
+	New              *JobRow `protobuf:"bytes,1,req,name=new" json:"new,omitempty"`
+	Old              *JobRow `protobuf:"bytes,2,opt,name=old" json:"old,omitempty"`
+	XXX_unrecognized []byte  `json:",omitempty"`
+}
+
+func (this *JobRowMutation) Reset()         { *this = JobRowMutation{} }
+func (this *JobRowMutation) String() string { return proto.CompactTextString(this) }
+
 func init() {
 }

@@ -275,7 +275,7 @@ func TestTimeline(t *testing.T) {
 	}
 
 	for _, mut := range changes {
-		first, sec := mut.OldRow, mut.NewRow
+		sec, first := mut.OldRow, mut.NewRow
 
 		if first.Key1 == "key0" && string(first.Data) == "0value1" && sec.Data != nil {
 			t.Fatalf("Got an 'old' value, expected null: %s - %s", *first, *sec)

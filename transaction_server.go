@@ -197,6 +197,8 @@ func toServerValue(val *TransactionValue) serverValue {
 	switch {
 	case val.StringValue != nil:
 		return &stringValue{*val.StringValue}
+	case val.IntValue != nil:
+		return &intValue{*val.IntValue}
 	case val.Map != nil:
 		return &mapValue{val.Map, nil}
 	case val.Array != nil:
@@ -224,20 +226,42 @@ func (sv *stringValue) toTransactionValue() *TransactionValue {
 	return toTransactionValue(sv.value)
 }
 
+// Represents a int value
+type intValue struct {
+	value int64
+}
+
+func (sv *intValue) toTransactionValue() *TransactionValue {
+	return toTransactionValue(sv.value)
+}
+
 // Represents a map value
 type mapValue struct {
-	value *TransactionCollection
-	intrf interface{}
+	trxCollection *TransactionCollection
+	value         nrv.Map
+}
+
+func (mv *mapValue) getMap() nrv.Map {
+	if mv.value == nil {
+		trxVal := &TransactionValue{Map: mv.trxCollection}
+		mv.value = trxVal.ToInterface().(nrv.Map)
+	}
+
+	return mv.value
+}
+
+func (mv *mapValue) remove(key string) {
+	delete(mv.getMap(), key)
 }
 
 func (mv *mapValue) toTransactionValue() *TransactionValue {
 	// if interface is set, value may have changed
-	if mv.intrf != nil {
-		return toTransactionValue(mv.intrf)
+	if mv.value != nil {
+		return toTransactionValue(mv.value)
 	}
 
 	return &TransactionValue{
-		Map: mv.value,
+		Map: mv.trxCollection,
 	}
 }
 
@@ -325,7 +349,7 @@ func (tv *tableValue) get(context *transactionContext, key interface{}, destinat
 
 	// if no prefix, we resolve token
 	if len(tv.prefix) == 0 {
-		token := nrv.ResolveToken(strKey)
+		token := nrv.HashToken(strKey)
 		if context.token != nil && *context.token != token {
 			context.setError("Token conflict: %s!=%s", token, *context.token)
 			return
@@ -333,35 +357,64 @@ func (tv *tableValue) get(context *transactionContext, key interface{}, destinat
 		context.token = &token
 	}
 
-	destination.value = &rowValue{
+	row := &rowValue{
 		table:   tv,
 		key:     strKey,
 		context: context,
 	}
+
+	// make sure we get data from db
+	row.getRow()
+
+	destination.value = row
 }
 
 func (tv *tableValue) set(context *transactionContext, key interface{}, value serverValue) {
 	context.logger.Debug("Executing 'set' on table %s with key %s, prefix %s", tv.table, key, tv.prefix)
 
-	if !context.dry {
-		bytes, err := value.toTransactionValue().Marshall()
-		if err != nil {
-			context.setError("Couldn't marshall value: %s", err)
+	strKey := fmt.Sprint(key)
+
+	// if no prefix, we resolve token
+	if len(tv.prefix) == 0 {
+		token := nrv.HashToken(strKey)
+		if context.token != nil && *context.token != token {
+			context.setError("Token conflict: %s!=%s", token, *context.token)
 			return
 		}
+		context.token = &token
+	}
 
-		l := len(tv.prefix) + 1
-		keys := make([]string, l)
-		for i := 0; i < l-1; i++ {
-			keys[i] = tv.prefix[i]
-		}
-		keys[l-1] = fmt.Sprintf("%s", key)
+	if mapVal, isMap := value.(*mapValue); isMap {
+		if !context.dry {
+			mapVal.remove("_timestamp")
+			mapVal.remove("_key1")
+			mapVal.remove("_key2")
+			mapVal.remove("_key3")
+			mapVal.remove("_key4")
 
-		err = context.storageTrx.Set(tv.table, keys, bytes)
-		if err != nil {
-			context.setError("Couldn't set value into table: %s", err)
-			return
+			bytes, err := mapVal.toTransactionValue().Marshall()
+			if err != nil {
+				context.setError("Couldn't marshall value: %s", err)
+				return
+			}
+
+			l := len(tv.prefix) + 1
+			keys := make([]string, l)
+			for i := 0; i < l-1; i++ {
+				keys[i] = tv.prefix[i]
+			}
+			keys[l-1] = fmt.Sprintf("%s", key)
+
+			err = context.storageTrx.Set(tv.table, keys, bytes)
+			if err != nil {
+				context.setError("Couldn't set value into table: %s", err)
+				return
+			}
 		}
+
+	} else {
+		context.setError("Can only store a map into table")
+		return
 	}
 }
 
@@ -395,12 +448,14 @@ type rowValue struct {
 	key     string
 	context *transactionContext
 
-	cachedValue *TransactionValue
+	row	     *Row
+	srvValue     *mapValue
 }
 
-func (rv *rowValue) toTransactionValue() *TransactionValue {
-	if rv.cachedValue == nil {
+func (rv *rowValue) getRow() *Row {
+	if rv.row == nil {
 		if !rv.context.dry {
+			// build keys array
 			l := len(rv.table.prefix) + 1
 			keys := make([]string, l)
 			for i := 0; i < l-1; i++ {
@@ -408,26 +463,66 @@ func (rv *rowValue) toTransactionValue() *TransactionValue {
 			}
 			keys[l-1] = rv.key
 
+			// get from storage
 			row, err := rv.context.storageTrx.Get(rv.table.table, keys)
 			if err != nil {
-				rv.context.setError("Couldn't get from storage: %s", err)
-				return &TransactionValue{}
+				rv.context.setError("Couldn't get from storage for table %s, keys %s: %s", rv.table.table.Name, keys, err)
+				return nil
 			}
 
-			retVal := &TransactionValue{}
-			err = retVal.Unmarshall(row.Data)
-			if err != nil {
-				rv.context.setError("Couldn't unmarshall value: %s", err)
-				return &TransactionValue{}
-			}
-
-			rv.cachedValue = retVal
-		} else {
-			rv.cachedValue = &TransactionValue{}
+			rv.row = row
 		}
 	}
 
-	return rv.cachedValue
+	return rv.row
+}
+
+func (rv *rowValue) getSrvValue() *mapValue {
+	if rv.srvValue == nil {
+		row := rv.getRow()
+		trxVal := &TransactionValue{}
+		if row != nil {
+			err := trxVal.Unmarshall(row.Data)
+			if err != nil {
+				rv.context.setError("Couldn't unmarshall value: %s", err)
+				return &mapValue{value:nrv.Map{}}
+			}
+
+			rv.srvValue = &mapValue{
+				trxCollection: trxVal.Map,
+			}
+		} else {
+			return nil
+		}
+
+	}
+
+	return rv.srvValue
+}
+
+func (rv *rowValue) toTransactionValue() *TransactionValue {
+	srvValue := rv.getSrvValue()
+
+	if srvValue != nil {
+		srvValue.remove("_timestamp")
+		srvValue.remove("_key1")
+		srvValue.remove("_key2")
+		srvValue.remove("_key3")
+		srvValue.remove("_key4")
+
+		row := rv.getRow()
+		if row != nil && srvValue.value != nil {
+			srvValue.value["_timestamp"] = row.IntTimestamp
+			srvValue.value["_key1"] = row.Key1
+			srvValue.value["_key2"] = row.Key2
+			srvValue.value["_key3"] = row.Key3
+			srvValue.value["_key4"] = row.Key4
+		}
+
+		return srvValue.toTransactionValue()
+	}
+
+	return nil
 }
 
 func (rv *rowValue) getTable(context *transactionContext, table interface{}, destination *serverVariable) {

@@ -3,6 +3,7 @@ package mry
 import (
 	"fmt"
 	mysql "github.com/gnanderson/GoMySQL"
+	"github.com/appaquet/nrv"
 	"strconv"
 	"strings"
 	"time"
@@ -48,7 +49,7 @@ func (m *MysqlStorage) toTableString(table *Table) string {
 	return name
 }
 
-func (m *MysqlStorage) GetTransaction(trxTime time.Time) (StorageTransaction, error) {
+func (m *MysqlStorage) GetTransaction(token nrv.Token, trxTime time.Time) (StorageTransaction, error) {
 	client, err := m.getClient()
 	if err != nil {
 		return nil, err
@@ -105,7 +106,7 @@ func (m *MysqlStorage) SyncModel(model *Model) error {
 	f = func(depth int, prefix string, col *tableCollection) error {
 		for _, table := range col.ToSlice() {
 			prefixedTable := prefix + table.Name
-			if _, found := exstTables[table.Name]; !found {
+			if _, found := exstTables[prefixedTable]; !found {
 				err := m.createTable(client, prefixedTable, depth)
 				if err != nil {
 					return err
@@ -143,8 +144,9 @@ func (m *MysqlStorage) createTable(client *mysql.Client, table string, depth int
 		kList = kList + "k" + strconv.Itoa(i)
 	}
 
-	sql = sql + "	`d` longtext NOT NULL,"
-	sql = sql + "	PRIMARY KEY (`t`," + kList + ")"
+	sql = sql + "	`d` blob NOT NULL,"
+	sql = sql + "	PRIMARY KEY (`t`," + kList + "),"
+	sql = sql + "	UNIQUE KEY `revkey` (" + kList + ",`t`)"
 	sql = sql + ") ENGINE=InnoDB  DEFAULT CHARSET=utf8;"
 
 	err := client.Query(sql)
@@ -197,15 +199,16 @@ func (t *MysqlStorageTransaction) buildBinding(row *Row, nbKeys int) []interface
 
 func (t *MysqlStorageTransaction) Get(table *Table, keys []string) (*Row, error) {
 	sqlKeys := ""
+	projKeys := ""
 	for i := 1; i <= len(keys); i++ {
 		if sqlKeys != "" {
 			sqlKeys += " AND "
 		}
+		projKeys += fmt.Sprintf("k%d,", i)
 		sqlKeys += fmt.Sprintf("k%d = ?", i)
 	}
 
-	curKey := fmt.Sprintf("k%d", len(keys))
-	stmt, err := t.client.Prepare("SELECT t," + curKey + ",d FROM `" + t.client.Escape(t.storage.toTableString(table)) + "` WHERE " + sqlKeys + " AND `t` <= ? ORDER BY `t` DESC LIMIT 0,1")
+	stmt, err := t.client.Prepare("SELECT t," + projKeys + " d FROM `" + t.client.Escape(t.storage.toTableString(table)) + "` WHERE " + sqlKeys + " AND `t` <= ? ORDER BY `t` DESC LIMIT 0,1")
 	if err != nil {
 		return nil, err
 	}
@@ -251,29 +254,58 @@ func (t *MysqlStorageTransaction) GetQuery(query StorageQuery) (RowIterator, err
 
 	// prepare query
 	table := t.client.Escape(t.storage.toTableString(query.Table))
-	sql := "SELECT top.*"
-	sql = sql + " FROM `" + table + "` AS top"
-	sql = sql + " WHERE top.t = ("
-	sql = sql + "   SELECT MAX(alt.t)"
-	sql = sql + "   FROM `" + table + "` AS alt"
-	sql = sql + "   WHERE "
 
-	groupKeys := ""
+	keys := ""
+	keysOrder := ""
+	joinWhereKeys := ""
 	for i := 1; i <= query.Table.Depth(); i++ {
 		if i >= 2 {
-			sql = sql + " AND "
-			groupKeys = groupKeys + ", "
+			keys = keys + ", "
+			keysOrder = keysOrder + ", "
+			joinWhereKeys = joinWhereKeys + " AND "
 		}
-		groupKeys = groupKeys + " alt.k" + strconv.Itoa(i)
-		sql = sql + " alt.k" + strconv.Itoa(i) + " = top.k" + strconv.Itoa(i)
+		keys = keys + "k" + strconv.Itoa(i)
+		keysOrder = keysOrder + "k" + strconv.Itoa(i) + " ASC"
+		joinWhereKeys = "top.k" + strconv.Itoa(i) + " = " + "top2.k" + strconv.Itoa(i)
 	}
 
-	sql = sql + "   GROUP BY " + groupKeys
-	sql = sql + " )"
+	whereKeys := ""
+	for i, _ := range query.TablePrefix {
+		if i == 0 {
+			whereKeys = " WHERE "
+		} else {
+			whereKeys += " AND "
+		}
+		whereKeys += "`k" + strconv.Itoa(i+1) + "` = ?"
+	}
+
+	sql := "SELECT top.* "
+	sql = sql + "FROM `"+table+"` AS top, ( "
+	sql = sql + "	SELECT " + keys + ", MAX(alt.t) AS m "
+	sql = sql + "	FROM `"+table+"` AS alt"
+	sql = sql + whereKeys
+	sql = sql + "	GROUP BY " + keys
+	sql = sql + "	ORDER BY " + keysOrder
+	sql = sql + "	LIMIT 0,10000 "
+	sql = sql + ") AS top2"
+	sql = sql + " WHERE " + joinWhereKeys
+	sql = sql + " AND top.t = top2.m "
 
 	stmt, err := t.client.Prepare(sql)
 	if err != nil {
 		return nil, err
+	}
+
+	if len(query.TablePrefix) > 0 {
+		iKeys := make([]interface{}, len(query.TablePrefix))
+		for i, v := range query.TablePrefix {
+			iKeys[i] = v
+		}
+
+		err = stmt.BindParams(iKeys...)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	err = stmt.Execute()
@@ -377,8 +409,8 @@ func (t *MysqlStorageTransaction) GetTimeline(table *Table, from time.Time, coun
 	oldRow := &Row{}
 	newRow := &Row{}
 
-	bindings1 := t.buildBinding(oldRow, table.Depth())
-	bindings2 := t.buildBinding(newRow, table.Depth())
+	bindings1 := t.buildBinding(newRow, table.Depth())
+	bindings2 := t.buildBinding(oldRow, table.Depth())
 	bindings1 = append(bindings1, bindings2...)
 
 	err = stmt.BindResult(bindings1...)

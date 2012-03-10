@@ -133,7 +133,6 @@ func (val *TransactionValue) ToInterface() interface{} {
 		return *val.DoubleValue
 	}
 
-	panic(fmt.Sprintf("Cannot convert value to interface: %s", val))
 	return nil
 }
 

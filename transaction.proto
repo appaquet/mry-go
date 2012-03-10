@@ -80,3 +80,19 @@ message TransactionOperation {
 	};
 }
 
+
+message JobRow {
+	required uint64 timestamp = 1;
+	required TransactionValue data = 2;
+	required string key1 = 3;
+	optional string key2 = 4;
+	optional string key3 = 5;
+	optional string key4 = 6;
+}
+
+message JobRowMutation {
+	required JobRow new = 1;
+	optional JobRow old = 2;
+}
+
+
